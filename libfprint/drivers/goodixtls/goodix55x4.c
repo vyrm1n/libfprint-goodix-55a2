@@ -135,6 +135,7 @@ static void goodix55X4_reset_state(FpiDeviceGoodixTls55X4 *self) {}
 // ---- ACTIVE SECTION START ----
 
 enum activate_states {
+  ACTIVATE_USB_RESET,
   ACTIVATE_READ_AND_NOP,
   ACTIVATE_ENABLE_CHIP,
   ACTIVATE_NOP,
@@ -311,9 +312,40 @@ static void check_mcu_pov_image(FpDevice *dev, gboolean success,
   }
 }
 
+static void activate_reset_settle(FpDevice *dev, gpointer ssm) {
+  fpi_ssm_next_state(ssm);
+}
+
 static void activate_run_state(FpiSsm *ssm, FpDevice *dev) {
 
   switch (fpi_ssm_get_cur_state(ssm)) {
+  case ACTIVATE_USB_RESET: {
+    /* OPTIONAL (opt-in via GOODIX_USB_RESET): a USB port reset at the start of
+     * each activation, to mitigate the sensor's finger-detection (FDT) becoming
+     * unreliable after many capture cycles. Release the interface, reset,
+     * re-claim, then wait ~2s for the firmware to come back up. NOTE: this only
+     * helps MILD degradation; once FDT is deeply wedged (after a very large
+     * number of resets) only a full power-cycle/reboot recovers it. Off by
+     * default — it adds ~2s latency per scan and is unnecessary on a fresh
+     * device. */
+    if (g_getenv("GOODIX_USB_RESET")) {
+      GUsbDevice *usb = fpi_device_get_usb_device(dev);
+      GError *uerr = NULL;
+      g_usb_device_release_interface(usb, 0, 0, NULL);
+      if (!g_usb_device_reset(usb, &uerr)) {
+        fp_warn("USB reset failed: %s", uerr ? uerr->message : "?");
+        g_clear_error(&uerr);
+      }
+      if (!g_usb_device_claim_interface(usb, 0, 0, &uerr)) {
+        fpi_ssm_mark_failed(ssm, uerr);
+        return;
+      }
+      fpi_device_add_timeout(dev, 2000, activate_reset_settle, ssm, NULL);
+      return; /* settle, then advance from the timeout callback */
+    }
+    fpi_ssm_next_state(ssm);
+    break;
+  }
   case ACTIVATE_READ_AND_NOP:
     fp_dbg("Read and NO OP\n");
     // Nop seems to clear the previous command buffer. But we are
