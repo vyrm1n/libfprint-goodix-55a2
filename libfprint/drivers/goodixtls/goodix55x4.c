@@ -964,7 +964,12 @@ static void scan_on_read_img(FpDevice *dev, guint8 *data, guint16 len,
       fpi_ssm_mark_failed(ssm, fpi_device_error_new(FP_DEVICE_ERROR_GENERAL));
       return;
     }
-    /* Keep the LED lit per-frame while waiting (the visible "swipe now" cue). */
+    /* Per-frame SetLed, mirroring what the Windows driver sends during active
+     * capture (cmd 0xc6, payload 0x00 on the wire). NOTE: the payload byte does
+     * NOT control the visible LED colour — empirically verified by sweeping all
+     * 0x00..0xff (idle) and by sending 0x01 during active imaging here; the LED
+     * stayed white/off in every case. The orange "scanning" colour is tied to a
+     * separate active-capture MCU state, not to this command's payload. */
     goodix_send_set_led(dev, 0x00, led_then_read_img, ssm);
     return;
   }
@@ -1257,8 +1262,9 @@ static void scan_run_state(FpiSsm *ssm, FpDevice *dev) {
     break;
   }
   case SCAN_STAGE_SET_LED:
-    /* Turn on the orange capture LED so the user sees when to swipe. payload
-     * 0x00 is what the Windows driver sends during active capture. */
+    /* SetLed as the Windows driver does at capture start (cmd 0xc6, payload
+     * 0x00). The payload does NOT drive the visible colour (disproven by a full
+     * 0x00..0xff sweep and a 0x01 imaging test); orange is a separate MCU state. */
     goodix_send_set_led(dev, 0x00, check_none, ssm);
     break;
   case SCAN_STAGE_GET_IMG:

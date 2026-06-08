@@ -26,7 +26,14 @@ This is an experimental libfprint fork adding a working driver for the **Goodix
 `goodixtls55x4` driver.
 
 **Status — enroll + verify working on hardware:** the right finger matches
-(bozorth score ~31–62), other fingers are rejected (≤14, threshold 24).
+(bozorth score ~31–87), other fingers are rejected (≤14, threshold 24).
+Verified end-to-end through `fprintd` + PAM: **KDE screen-unlock and `sudo` by
+fingerprint both work.**
+
+### 👉 [Installation guide: INSTALL_55a2.md](INSTALL_55a2.md)
+
+Step-by-step build + isolated install + `fprintd`/PAM setup (openSUSE/KDE),
+plus troubleshooting (Windows dual-boot PSK reset, FDT recovery, swipe technique).
 
 How it works: TLS-PSK encrypted capture, treats the tiny 56×176 sensor as a
 **swipe** sensor — streams frames during the swipe, per-pixel background
