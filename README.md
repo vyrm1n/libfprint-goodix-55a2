@@ -25,6 +25,12 @@ This is an experimental libfprint fork adding a working driver for the **Goodix
 `27c6:55a2`** fingerprint sensor (firmware `GF3208_RTSEC_APP_10062`), via the
 `goodixtls55x4` driver.
 
+> **Vibe-coded.** This fork, like the upstream fork it builds on, was written
+> with heavy LLM assistance rather than hand-audited line by line by an
+> experienced C/USB developer. It works on the hardware it's been tested on,
+> but treat it accordingly — see [Audit this yourself](#audit-this-yourself)
+> before you run any of it as root.
+
 **Status — enroll + verify working on hardware:** the right finger matches
 (bozorth score ~27–87), other fingers are rejected (≤14, threshold 24).
 Verified end-to-end through `fprintd` + PAM: **KDE screen-unlock and `sudo` by
