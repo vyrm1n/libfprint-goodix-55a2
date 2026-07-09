@@ -29,7 +29,7 @@ This is an experimental libfprint fork adding a working driver for the **Goodix
 (bozorth score ~27–87), other fingers are rejected (≤14, threshold 24).
 Verified end-to-end through `fprintd` + PAM: **KDE screen-unlock and `sudo` by
 fingerprint both work**, confirmed on a real Arch Linux install (see
-[Security audit](#security-audit) and [Install log](#install-log-arch-linux)
+[Audit this yourself](#audit-this-yourself) and [Install log](#install-log-arch-linux)
 below).
 
 ### 👉 [Installation guide: INSTALL_55a2.md](INSTALL_55a2.md)
@@ -62,27 +62,58 @@ Device coverage of this branch's Goodix TLS drivers:
 > a USB `dev.reset()` restores it; single-tap capture is unimplemented (see
 > above); broader hardware validation is still open.
 
-## Security audit
+## Audit this yourself
 
-Before building or installing this fork (or the companion
-[`goodix-fp-dump`](https://github.com/Ravira43/goodix-fp-dump) repo, used for
-`restore_psk_55a2.py`), it was audited file-by-file against a fresh clone of
-real upstream (`gitlab.freedesktop.org/libfprint/libfprint`). Scope: every
-diff beyond the claimed driver addition, exec/network/file-I/O in the new
-driver code, the PSK-restore script (runs as root, talks to USB), build files,
-and any PAM/systemd/sudoers/cron/udev changes.
+Don't take anyone's word for it, including this README — this fork (and the
+companion [`goodix-fp-dump`](https://github.com/Ravira43/goodix-fp-dump),
+used for `restore_psk_55a2.py`) runs as root and talks directly to USB
+hardware. Before building or installing, check it yourself:
 
-**Verdict: no backdoors, exfiltration, unexpected network access, or
-scope-violating file access found.** Everything that touches the system is
-exactly what [INSTALL_55a2.md](INSTALL_55a2.md) documents: an isolated
-`/opt/fprint55a2` install, a scoped `fprintd` systemd drop-in
-(`LD_LIBRARY_PATH` only), and an opt-in PAM edit for `sudo`. Two minor,
-non-security reliability bugs were found in unrelated driver/matcher code
-(`goodixmoc/goodix_proto.c` — a malformed device response now aborts the
-process instead of erroring gracefully; `fp-print.c` — a `GPtrArray`/
-`GObject` type-confusion bug in the new `sigfm` print-serialization path).
-Full findings available in the session transcript this README was generated
-from; summarized fixes applied as a result of the audit are below.
+**1. Diff against real upstream** — see everything that changed beyond the
+driver this fork claims to add:
+```bash
+git remote add upstream https://gitlab.freedesktop.org/libfprint/libfprint.git
+git fetch upstream
+git diff $(git merge-base HEAD upstream/master) HEAD --stat
+```
+Read through any file outside `libfprint/drivers/goodixtls/` and
+`INSTALL_55a2.md` — that's scope beyond "adds a 55a2 driver".
+
+**2. Grep the new driver code for anything that shouldn't be there** — a USB
+fingerprint driver has no business spawning processes, opening real network
+sockets, or touching files outside a debug dir you opted into:
+```bash
+grep -rnE 'system\(|popen\(|exec[lv]|fork\(|socket\(|connect\(|curl|wget|base64' \
+  libfprint/drivers/goodixtls/
+```
+Anything that shows up needs an explanation in a comment nearby, or it's a
+red flag.
+
+**3. Read `restore_psk_55a2.py` and what it imports** — it's short (~30
+lines) and only calls `check_psk()`/`write_psk()`. Confirm the USB device
+lookup is pinned to `idVendor=0x27c6, idProduct=0x55a2` (in `protocol.py`),
+not a wildcard, and that nothing it actually calls spawns a subprocess or
+opens a socket (some *other*, unused functions in `driver_55x4.py` do —
+check they're not on the call path).
+
+**4. Check the build files don't fetch anything** — `meson.build` should have
+no `subproject()`/`.wrap` files and no `run_command()` pulling from the
+network:
+```bash
+find . -iname '*.wrap' -o -iname subprojects
+grep -rn 'run_command\|subproject' meson.build libfprint/meson.build
+```
+
+**5. Compare `INSTALL_55a2.md` against what actually touches your system** —
+it should be the only place describing changes outside `/opt`: a systemd
+drop-in for `fprintd`, and an opt-in PAM edit for `sudo`. Nothing here should
+touch sudoers, cron, or udev rules:
+```bash
+grep -rlE '\.rules$|sudoers|cron' . --include='*.md' --include='*.c'
+```
+
+If any of these turn up something INSTALL_55a2.md doesn't mention, stop and
+ask before running it as root.
 
 ## Fixes applied (this pass)
 
