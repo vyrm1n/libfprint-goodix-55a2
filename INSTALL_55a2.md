@@ -130,29 +130,57 @@ The sensor is tiny and treated as a **swipe** sensor:
 `kde-fingerprint` PAM service already references `pam_fprintd.so`. Lock with
 `Meta+L` and swipe.
 
-**`sudo` by fingerprint** — add a targeted override (password still works):
+**`sudo` by fingerprint** — insert one line at the top of the *existing*
+`/etc/pam.d/sudo`, don't blindly overwrite the whole file: the include names
+differ by distro (Debian/openSUSE use `common-auth`/`common-account`/
+`common-password`/`common-session-nonlogin`; **Arch uses `system-auth`**).
+Always back up first and confirm what your distro's file actually contains:
+
+```bash
+sudo cp /etc/pam.d/sudo /etc/pam.d/sudo.orig   # backup, always
+cat /etc/pam.d/sudo                            # see what your distro ships
+```
+
+On **Arch Linux**, the stock file is:
+
+```
+#%PAM-1.0
+auth		include		system-auth
+account		include		system-auth
+session		include		system-auth
+session		optional	pam_systemd.so class=none
+```
+
+so add a `pam_fprintd.so` line before the `system-auth` include instead of
+replacing the file:
 
 ```bash
 sudo tee /etc/pam.d/sudo >/dev/null <<'EOF'
 #%PAM-1.0
-auth     sufficient     pam_fprintd.so
-auth     include        common-auth
-account  include        common-account
-password include        common-password
-session  optional       pam_keyinit.so revoke
-session  include        common-session-nonlogin
+auth		sufficient	pam_fprintd.so
+auth		include		system-auth
+account		include		system-auth
+session		include		system-auth
+session		optional	pam_systemd.so class=none
 EOF
 ```
 
+(On Debian/Ubuntu/openSUSE, replace the `system-auth` includes above with
+`common-auth`/`common-account`/`common-password`+`common-session-nonlogin` —
+whatever `cat /etc/pam.d/sudo` showed you before you touched it.)
+
 Test: `sudo -k && sudo echo ok` → it should ask you to swipe.
 
-> **Do NOT add `pam_fprintd` to `common-auth`.** `sshd`, `su`, etc. include it,
-> and a remote `ssh` login would then hang waiting for a finger swipe. Always
-> add it to the specific service file you want (`sudo`, `sddm`, …).
+> **Do NOT add `pam_fprintd` to `system-auth`/`common-auth`.** `sshd`, `su`,
+> etc. include it, and a remote `ssh` login would then hang waiting for a
+> finger swipe. Always add it to the specific service file you want (`sudo`,
+> `sddm`, …), never to the shared base include.
 
-For the **SDDM login screen**, create `/etc/pam.d/sddm` mirroring
-`/usr/lib/pam.d/sddm` with `auth sufficient pam_fprintd.so` added as the first
-`auth` line (optional; the lock screen is usually enough).
+For the **SDDM login screen**, on Arch `/etc/pam.d/sddm` is already a real
+(non-symlink) file installed by the `sddm` package — back it up
+(`sudo cp /etc/pam.d/sddm /etc/pam.d/sddm.orig`) then add
+`auth sufficient pam_fprintd.so` as the first `auth` line (optional; the lock
+screen already works via `kde-fingerprint`, see below).
 
 ---
 
@@ -203,9 +231,14 @@ affect matching.
 ## Uninstall
 
 ```bash
-sudo rm /etc/pam.d/sudo                                   # back to vendor sudo
+sudo mv /etc/pam.d/sudo.orig /etc/pam.d/sudo               # restore your backup
 sudo rm /etc/systemd/system/fprintd.service.d/override.conf
 sudo systemctl daemon-reload && sudo systemctl restart fprintd
 sudo rm -rf /opt/fprint55a2
 fprintd-delete "$USER"                                    # remove enrolled prints
 ```
+
+If you didn't keep the `.orig` backup, reinstall the vendor package's version
+instead (e.g. `sudo pacman -S --overwrite /etc/pam.d/sudo sudo` on Arch) rather
+than leaving `/etc/pam.d/sudo` deleted — an absent PAM file makes `sudo` fail
+authentication for everyone until it's restored.
